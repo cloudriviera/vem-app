@@ -12,7 +12,7 @@ metadata:
         * Backend Service (internal): ${APPLICATION_NAME}-backend
         * MongoDB Service (internal): ${APPLICATION_NAME}-mongodb
         
-      For more information about using this template, see https://github.com/your-org/task-manager
+      For more information about using this template, see https://github.com/cloudriviera/vem-app
     openshift.io/display-name: VEM Application
     openshift.io/documentation-url: https://github.com/cloudriviera/vem-app.git
     openshift.io/long-description: This template creates a full stack VEM APP
@@ -27,8 +27,7 @@ metadata:
     samples.operator.openshift.io/managed: "true"
   name: vem-app
   namespace: openshift
-  resourceVersion: "54403"
-  uid: b4e8ebd3-9f29-4a10-a7de-08d071758289
+
 parameters:
 - name: APPLICATION_NAME
   description: "The name for the application"
@@ -44,7 +43,7 @@ parameters:
   generate: expression
 - name: MONGODB_DATABASE
   description: "MongoDB database name"
-  value: "taskdb"
+  value: "vemdb"
   required: true
 - name: MONGODB_STORAGE_SIZE
   description: "MongoDB storage size"
@@ -69,6 +68,27 @@ parameters:
   value: "latest"
 
 objects:
+
+# ImageStreams must be created before BuildConfigs
+- apiVersion: image.openshift.io/v1
+  kind: ImageStream
+  metadata:
+    name: ${APPLICATION_NAME}-frontend
+    labels:
+      app: ${APPLICATION_NAME}
+  spec:
+    lookupPolicy:
+      local: true
+
+- apiVersion: image.openshift.io/v1
+  kind: ImageStream
+  metadata:
+    name: ${APPLICATION_NAME}-backend
+    labels:
+      app: ${APPLICATION_NAME}
+  spec:
+    lookupPolicy:
+      local: true
 # MongoDB Secret
 - apiVersion: v1
   kind: Secret
