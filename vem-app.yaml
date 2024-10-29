@@ -212,7 +212,7 @@ objects:
         - name: frontend
           image: ${APPLICATION_NAME}-frontend:${TAG}
           ports:
-          - containerPort: 80
+          - containerPort: 8080
           env:
           - name: NODE_ENV
             value: ${NODE_ENV}
@@ -241,7 +241,7 @@ objects:
       termination: edge
       insecureEdgeTerminationPolicy: Redirect
     port:
-      targetPort: 80
+      targetPort: 8080
 
 # Backend BuildConfig
 - apiVersion: build.openshift.io/v1
@@ -312,8 +312,8 @@ objects:
   spec:
     ports:
     - name: http
-      port: 80
-      targetPort: 80
+      port: 8080
+      targetPort: 8080
     selector:
       app: ${APPLICATION_NAME}-frontend
 
