@@ -1,0 +1,326 @@
+apiVersion: template.openshift.io/v1
+kind: Template
+metadata:
+  annotations:
+    console.openshift.io/icon: data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxMDAgMTAwIj48ZyBmaWxsPSIjMzBiZTAwIj48cGF0aCBkPSJNNTAgMEMyMi40IDAgMCAyMi40IDAgNTBzMjIuNCA1MCA1MCA1MCA1MC0yMi40IDUwLTUwUzc3LjYgMCA1MCAwek0yMi45IDY1LjFsNi43LTYuNyA2LjcgNi43LTYuNyA2LjctNi43LTYuN3ptMjEuNiAyMS42bC02LjctNi43IDYuNy02LjcgNi43IDYuNy02LjcgNi43em0yMS42LTIxLjZsLTYuNy02LjcgNi43LTYuNyA2LjcgNi43LTYuNyA2Ljd6Ii8+PC9nPjwvc3ZnPg==
+    console.openshift.io/quickstart: "true"
+    description: Full application with Vue.js frontend, Express.js backend, and MongoDB
+    iconClass: icon-nodejs
+    message: |-
+      The following service(s) have been created in your project:
+        * Frontend URL: https://${APPLICATION_NAME}-frontend-${OPENSHIFT_PROJECT}.${OPENSHIFT_CLUSTER_DOMAIN}
+        * Backend Service (internal): ${APPLICATION_NAME}-backend
+        * MongoDB Service (internal): ${APPLICATION_NAME}-mongodb
+        
+      For more information about using this template, see https://github.com/your-org/task-manager
+    openshift.io/display-name: VEM Application
+    openshift.io/documentation-url: https://github.com/cloudriviera/vem-app.git
+    openshift.io/long-description: This template creates a full stack VEM APP
+      application with a Vue.js frontend, Express.js backend API, and MongoDB database.
+      It includes build configurations, deployments, services, routes, and persistent
+      storage for MongoDB.
+    openshift.io/provider-display-name: Palais Princier
+    samples.operator.openshift.io/version: 4.16.7
+    service.binding.openshift.io/required: "true"
+    tags: nodejs,vuejs,mongodb,fullstack,vem,vue
+  labels:
+    samples.operator.openshift.io/managed: "true"
+  name: vem-app
+  namespace: openshift
+  resourceVersion: "54403"
+  uid: b4e8ebd3-9f29-4a10-a7de-08d071758289
+parameters:
+- name: APPLICATION_NAME
+  description: "The name for the application"
+  value: "vem-app"
+  required: true
+- name: MONGODB_USER
+  description: "MongoDB user"
+  value: "vemuser"
+  required: true
+- name: MONGODB_PASSWORD
+  description: "MongoDB password"
+  from: '[a-zA-Z0-9]{16}'
+  generate: expression
+- name: MONGODB_DATABASE
+  description: "MongoDB database name"
+  value: "taskdb"
+  required: true
+- name: MONGODB_STORAGE_SIZE
+  description: "MongoDB storage size"
+  value: "1Gi"
+- name: FRONTEND_REPLICAS
+  description: "Number of frontend replicas"
+  value: "2"
+- name: BACKEND_REPLICAS
+  description: "Number of backend replicas"
+  value: "2"
+- name: GIT_REPOSITORY_URL
+  description: "Git repository URL containing the application source code"
+  required: true
+- name: GIT_BRANCH
+  description: "Git branch/tag reference"
+  value: "main"
+- name: NODE_ENV
+  description: "Node.js environment"
+  value: "production"
+- name: TAG
+  description: "Image tag"
+  value: "latest"
+
+objects:
+# MongoDB Secret
+- apiVersion: v1
+  kind: Secret
+  metadata:
+    name: ${APPLICATION_NAME}-mongodb-secret
+    labels:
+      app: ${APPLICATION_NAME}
+  type: Opaque
+  stringData:
+    username: ${MONGODB_USER}
+    password: ${MONGODB_PASSWORD}
+    database: ${MONGODB_DATABASE}
+    uri: mongodb://${MONGODB_USER}:${MONGODB_PASSWORD}@${APPLICATION_NAME}-mongodb:27017/${MONGODB_DATABASE}?authSource=admin
+
+# MongoDB PVC
+- apiVersion: v1
+  kind: PersistentVolumeClaim
+  metadata:
+    name: ${APPLICATION_NAME}-mongodb-pvc
+    labels:
+      app: ${APPLICATION_NAME}
+  spec:
+    accessModes:
+    - ReadWriteOnce
+    resources:
+      requests:
+        storage: ${MONGODB_STORAGE_SIZE}
+
+# MongoDB Deployment
+- apiVersion: apps/v1
+  kind: Deployment
+  metadata:
+    name: ${APPLICATION_NAME}-mongodb
+    labels:
+      app: ${APPLICATION_NAME}
+  spec:
+    replicas: 1
+    selector:
+      matchLabels:
+        app: ${APPLICATION_NAME}-mongodb
+    template:
+      metadata:
+        labels:
+          app: ${APPLICATION_NAME}-mongodb
+      spec:
+        containers:
+        - name: mongodb
+          image: mongodb:5.0
+          ports:
+          - containerPort: 27017
+          env:
+          - name: MONGO_INITDB_ROOT_USERNAME
+            valueFrom:
+              secretKeyRef:
+                name: ${APPLICATION_NAME}-mongodb-secret
+                key: username
+          - name: MONGO_INITDB_ROOT_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: ${APPLICATION_NAME}-mongodb-secret
+                key: password
+          - name: MONGO_INITDB_DATABASE
+            valueFrom:
+              secretKeyRef:
+                name: ${APPLICATION_NAME}-mongodb-secret
+                key: database
+          volumeMounts:
+          - name: mongodb-data
+            mountPath: /data/db
+          resources:
+            limits:
+              memory: 512Mi
+            requests:
+              memory: 256Mi
+        volumes:
+        - name: mongodb-data
+          persistentVolumeClaim:
+            claimName: ${APPLICATION_NAME}-mongodb-pvc
+
+# Frontend BuildConfig
+- apiVersion: build.openshift.io/v1
+  kind: BuildConfig
+  metadata:
+    name: ${APPLICATION_NAME}-frontend
+    labels:
+      app: ${APPLICATION_NAME}
+  spec:
+    source:
+      type: Git
+      git:
+        uri: ${GIT_REPOSITORY_URL}
+        ref: ${GIT_BRANCH}
+      contextDir: frontend
+    strategy:
+      type: Docker
+      dockerStrategy:
+        dockerfilePath: Dockerfile.frontend
+    output:
+      to:
+        kind: ImageStreamTag
+        name: ${APPLICATION_NAME}-frontend:${TAG}
+
+# Frontend Deployment
+- apiVersion: apps/v1
+  kind: Deployment
+  metadata:
+    name: ${APPLICATION_NAME}-frontend
+    labels:
+      app: ${APPLICATION_NAME}
+  spec:
+    replicas: ${{FRONTEND_REPLICAS}}
+    selector:
+      matchLabels:
+        app: ${APPLICATION_NAME}-frontend
+    template:
+      metadata:
+        labels:
+          app: ${APPLICATION_NAME}-frontend
+      spec:
+        containers:
+        - name: frontend
+          image: ${APPLICATION_NAME}-frontend:${TAG}
+          ports:
+          - containerPort: 80
+          env:
+          - name: NODE_ENV
+            value: ${NODE_ENV}
+          - name: VITE_API_URL
+            value: /api
+          resources:
+            limits:
+              memory: 512Mi
+            requests:
+              memory: 256Mi
+
+# Frontend Route
+- apiVersion: route.openshift.io/v1
+  kind: Route
+  metadata:
+    name: ${APPLICATION_NAME}-frontend
+    labels:
+      app: ${APPLICATION_NAME}
+    annotations:
+      haproxy.router.openshift.io/timeout: 30s
+  spec:
+    to:
+      kind: Service
+      name: ${APPLICATION_NAME}-frontend
+    tls:
+      termination: edge
+      insecureEdgeTerminationPolicy: Redirect
+    port:
+      targetPort: 80
+
+# Backend BuildConfig
+- apiVersion: build.openshift.io/v1
+  kind: BuildConfig
+  metadata:
+    name: ${APPLICATION_NAME}-backend
+    labels:
+      app: ${APPLICATION_NAME}
+  spec:
+    source:
+      type: Git
+      git:
+        uri: ${GIT_REPOSITORY_URL}
+        ref: ${GIT_BRANCH}
+      contextDir: backend
+    strategy:
+      type: Docker
+      dockerStrategy:
+        dockerfilePath: Dockerfile.backend
+    output:
+      to:
+        kind: ImageStreamTag
+        name: ${APPLICATION_NAME}-backend:${TAG}
+
+# Backend Deployment
+- apiVersion: apps/v1
+  kind: Deployment
+  metadata:
+    name: ${APPLICATION_NAME}-backend
+    labels:
+      app: ${APPLICATION_NAME}
+  spec:
+    replicas: ${{BACKEND_REPLICAS}}
+    selector:
+      matchLabels:
+        app: ${APPLICATION_NAME}-backend
+    template:
+      metadata:
+        labels:
+          app: ${APPLICATION_NAME}-backend
+      spec:
+        containers:
+        - name: backend
+          image: ${APPLICATION_NAME}-backend:${TAG}
+          ports:
+          - containerPort: 3000
+          env:
+          - name: NODE_ENV
+            value: ${NODE_ENV}
+          - name: MONGODB_URI
+            valueFrom:
+              secretKeyRef:
+                name: ${APPLICATION_NAME}-mongodb-secret
+                key: uri
+          resources:
+            limits:
+              memory: 512Mi
+            requests:
+              memory: 256Mi
+
+# Services
+- apiVersion: v1
+  kind: Service
+  metadata:
+    name: ${APPLICATION_NAME}-frontend
+    labels:
+      app: ${APPLICATION_NAME}
+  spec:
+    ports:
+    - name: http
+      port: 80
+      targetPort: 80
+    selector:
+      app: ${APPLICATION_NAME}-frontend
+
+- apiVersion: v1
+  kind: Service
+  metadata:
+    name: ${APPLICATION_NAME}-backend
+    labels:
+      app: ${APPLICATION_NAME}
+  spec:
+    ports:
+    - name: http
+      port: 3000
+      targetPort: 3000
+    selector:
+      app: ${APPLICATION_NAME}-backend
+
+- apiVersion: v1
+  kind: Service
+  metadata:
+    name: ${APPLICATION_NAME}-mongodb
+    labels:
+      app: ${APPLICATION_NAME}
+  spec:
+    ports:
+    - name: mongodb
+      port: 27017
+      targetPort: 27017
+    selector:
+      app: ${APPLICATION_NAME}-mongodb
