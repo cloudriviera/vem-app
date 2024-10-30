@@ -1,0 +1,135 @@
+kind: PersistentVolumeClaim
+apiVersion: v1
+metadata:
+  name: mongodb-pvc
+  finalizers:
+    - kubernetes.io/pvc-protection
+  labels:
+    app: my-task-app
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+  storageClassName: thin
+  volumeMode: Filesystem
+status:
+  phase: Bound
+  accessModes:
+    - ReadWriteOnce
+  capacity:
+    storage: 1Gi
+
+---
+kind: Secret
+apiVersion: v1
+metadata:
+  name: mongodb-secret
+  labels:
+    app: ppmcsample
+data:
+  database: dGFza2Ri
+  password: MnY3SkFsQ1RVdWFCUmZLZQ==
+  uri: bW9uZ29kYjovL3ZlbXVzZXI6MnY3SkFsQ1RVdWFCUmZLZUBteS10YXNrLWFwcC1tb25nb2RiOjI3MDE3L3Rhc2tkYj9hdXRoU291cmNlPWFkbWlu
+  username: dmVtdXNlcg==
+type: Opaque
+---
+kind: ConfigMap
+apiVersion: v1
+metadata:
+  name: mongo-init-script
+immutable: false
+data:
+  init-mongo.js: |-
+    db.getSiblingDB('admin').auth('vemuser', '2v7JAlCTUuaBRfKe');
+    db.getSiblingDB('mydatabase').createUser({user: 'seconduser', pwd: 'seconduserpwd', roles: [{role: 'readWrite', db: 'mydatabase'}]});
+  mongo-init.js: |
+    db.getSiblingDB('admin').auth('vemuser', '2v7JAlCTUuaBRfKe');
+    db.getSiblingDB('mydatabase').createUser({user: 'seconduser', pwd: 'seconduserpwd', roles: [{role: 'readWrite', db: 'mydatabase'}]});
+
+---
+kind: Deployment
+apiVersion: apps/v1
+metadata:
+
+  name: ppmcsample
+
+  labels:
+    app: my-task-app
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ppmcsample
+  template:
+    metadata:
+      creationTimestamp: null
+      labels:
+        app: ppmcsample
+    spec:
+      volumes:
+        - name: mongodb-data
+          persistentVolumeClaim:
+            claimName: mongodb-pvc
+        - name: mongo-init
+          configMap:
+            name: mongo-init-script
+            defaultMode: 493
+      containers:
+        - terminationMessagePath: /dev/termination-log
+          lifecycle:
+            postStart:
+              exec:
+                command:
+                  - /bin/sh
+                  - '-c'
+                  - /docker-entrypoint-initdb.d/mongo-ini.js
+          name: mongodb
+          env:
+            - name: MONGODB_USER
+              value: seconduser
+            - name: MONGODB_PASSWORD
+              value: seconduserpwd
+            - name: MONGODB_DATABASE
+              value: mydatabase
+            - name: MONGO_INITDB_ROOT_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: mongodb-secret
+                  key: username
+            - name: MONGO_INITDB_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: mongodb-secret
+                  key: password
+            - name: MONGO_INITDB_DATABASE
+              valueFrom:
+                secretKeyRef:
+                  name: mongodb-secret
+                  key: database
+          ports:
+            - containerPort: 27017
+              protocol: TCP
+          imagePullPolicy: IfNotPresent
+          volumeMounts:
+            - name: mongodb-data
+              mountPath: /data/db
+            - name: mongo-init
+              mountPath: /docker-entrypoint-initdb.d/
+          terminationMessagePolicy: File
+          image: 'mongodb/mongodb-community-server:8.0.3-ubi8'
+      restartPolicy: Always
+      terminationGracePeriodSeconds: 30
+      dnsPolicy: ClusterFirst
+      securityContext: {}
+      schedulerName: default-scheduler
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 25%
+      maxSurge: 25%
+  revisionHistoryLimit: 10
+  progressDeadlineSeconds: 600
+
+---
